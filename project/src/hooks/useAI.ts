@@ -45,7 +45,10 @@ export function useAIQuestions(): UseAIQuestionsResult {
     setError(null);
     
     try {
+      console.log('Hook: Generating questions with config:', config);
       const newQuestions = await aiService.generateQuestions(config);
+      console.log('Hook: Received questions:', newQuestions.length, 'questions');
+      console.log('Hook: First question ID check:', newQuestions[0]?.id);
       setQuestions(newQuestions);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate questions');

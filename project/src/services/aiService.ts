@@ -16,17 +16,36 @@ class AIService {
   private isConfigured: boolean = false;
 
   constructor() {
-    // Initialize OpenAI client - API key will be set via environment variable
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    // Check for Azure OpenAI configuration first, then fallback to regular OpenAI
+    const azureApiKey = import.meta.env.VITE_AZURE_OPENAI_API_KEY;
+    const azureEndpoint = import.meta.env.VITE_AZURE_OPENAI_ENDPOINT;
+    const azureApiVersion = import.meta.env.VITE_AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
     
-    if (apiKey) {
+    const regularApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    
+    if (azureApiKey && azureEndpoint) {
+      // Use Azure OpenAI
       this.openai = new OpenAI({
-        apiKey: apiKey,
-        dangerouslyAllowBrowser: import.meta.env.DEV // Only allow in development; use a backend proxy in production
+        apiKey: azureApiKey,
+        baseURL: `${azureEndpoint}/openai/deployments`,
+        defaultQuery: { 'api-version': azureApiVersion },
+        defaultHeaders: {
+          'api-key': azureApiKey,
+        },
+        dangerouslyAllowBrowser: import.meta.env.DEV
       });
       this.isConfigured = true;
+      console.log('AI Service: Configured with Azure OpenAI');
+    } else if (regularApiKey) {
+      // Use regular OpenAI
+      this.openai = new OpenAI({
+        apiKey: regularApiKey,
+        dangerouslyAllowBrowser: import.meta.env.DEV
+      });
+      this.isConfigured = true;
+      console.log('AI Service: Configured with OpenAI');
     } else {
-      console.warn('OpenAI API key not found. AI features will use fallback data.');
+      console.warn('No AI API key found. AI features will use fallback data.');
       this.isConfigured = false;
     }
   }
@@ -37,18 +56,20 @@ class AIService {
    */
   async generateQuestions(config: QuestionGenerationConfig): Promise<AIQuestion[]> {
     if (!this.isConfigured) {
+      console.log('AI not configured, using fallback questions');
       return this.getFallbackQuestions(config.module);
     }
 
     try {
+      console.log('Generating AI questions for module:', config.module);
       const prompt = this.buildQuestionPrompt(config);
       
       const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
         messages: [
           {
             role: "system",
-            content: "You are an expert kindergarten teacher and child development specialist. Create engaging, age-appropriate learning questions that are fun and educational."
+            content: "You are an expert kindergarten teacher and child development specialist. Create engaging, age-appropriate learning questions that are fun and educational. Always respond with valid JSON format."
           },
           {
             role: "user",
@@ -60,9 +81,22 @@ class AIService {
       });
 
       const content = response.choices[0]?.message?.content;
-      if (!content) throw new Error('No response from AI');
+      if (!content) {
+        console.error('No content in AI response');
+        return this.getFallbackQuestions(config.module);
+      }
 
-      return this.parseQuestionsFromResponse(content);
+      const aiQuestions = this.parseQuestionsFromResponse(content);
+      
+      // If parsing failed or returned no questions, use fallback
+      if (aiQuestions.length === 0) {
+        console.log('AI question parsing failed, using fallback questions');
+        return this.getFallbackQuestions(config.module);
+      }
+      
+      console.log(`Successfully generated ${aiQuestions.length} AI questions`);
+      return aiQuestions;
+      
     } catch (error) {
       console.error('AI question generation failed:', error);
       return this.getFallbackQuestions(config.module);
@@ -121,7 +155,7 @@ class AIService {
       Format: {"message": "your varied message", "emoji": "appropriate emoji"}`;
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
         messages: [
           {
             role: "system",
@@ -200,7 +234,7 @@ Provide analysis in JSON format:
 }`;
 
       const response = await this.openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
+        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
         messages: [
           {
             role: "system",
@@ -264,7 +298,9 @@ Context for uniqueness:
 - Previous topics covered: ${config.previousTopics.length} topics
 - Child interests: ${config.childInterests?.join(', ') || 'General learning'}
 
-Format as JSON array:
+CRITICAL: Respond ONLY with a valid JSON array. Do not include any text before or after the JSON. Do not use markdown formatting.
+
+Format as JSON array (exactly like this example):
 [
   {
     "question": "creative question text with variety",
@@ -272,6 +308,13 @@ Format as JSON array:
     "correct": 0,
     "explanation": "encouraging explanation that shows the correct answer",
     "topic": "specific topic covered"
+  },
+  {
+    "question": "another creative question",
+    "options": ["choice1", "choice2", "choice3", "choice4"],
+    "correct": 1,
+    "explanation": "positive explanation for the correct answer",
+    "topic": "another specific topic"
   }
 ]`;
   }
@@ -282,8 +325,43 @@ Format as JSON array:
    */
   private parseQuestionsFromResponse(response: string): AIQuestion[] {
     try {
-      const parsed = JSON.parse(response);
-      return parsed.map((q: any, index: number) => ({
+      console.log('AI Response received:', response); // Debug log
+      
+      // Clean up the response to handle potential markdown formatting
+      let cleanResponse = response.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '');
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/```\s*/g, '').replace(/```\s*$/g, '');
+      }
+      
+      const parsed = JSON.parse(cleanResponse);
+      
+      // Validate that we have an array
+      if (!Array.isArray(parsed)) {
+        console.error('AI response is not an array:', parsed);
+        return [];
+      }
+      
+      // Validate each question has required fields
+      const validQuestions = parsed.filter((q: any) => {
+        return q.question && 
+               Array.isArray(q.options) && 
+               q.options.length === 4 && 
+               typeof q.correct === 'number' && 
+               q.correct >= 0 && 
+               q.correct < 4 &&
+               q.explanation;
+      });
+      
+      if (validQuestions.length === 0) {
+        console.error('No valid questions found in AI response');
+        return [];
+      }
+      
+      console.log(`Successfully parsed ${validQuestions.length} valid questions from AI`);
+      
+      return validQuestions.map((q: any, index: number) => ({
         id: `ai-${Date.now()}-${index}`,
         question: q.question,
         options: q.options,
@@ -294,203 +372,377 @@ Format as JSON array:
       }));
     } catch (error) {
       console.error('Failed to parse AI questions:', error);
+      console.error('Raw AI response:', response);
       return [];
     }
   }
 
   /**
-   * Fallback questions when AI is unavailable
-   * Ensures app continues to function without AI service
+   * Enhanced fallback questions with variety and randomization
+   * Provides diverse questions that simulate AI-generated content
    */
   private getFallbackQuestions(module: string): AIQuestion[] {
-    const fallbackQuestions: Record<string, AIQuestion[]> = {
+    // Add randomization to create variety
+    const timestamp = Date.now();
+    const seed = Math.floor(Math.random() * 1000);
+    
+    const allFallbackQuestions: Record<string, AIQuestion[][]> = {
       letters: [
-        {
-          id: 'fallback-l1',
-          question: 'What letter comes after B?',
-          options: ['A', 'C', 'D', 'E'],
-          correct: 1,
-          explanation: 'Great job! C comes right after B in the alphabet!',
-          difficulty: 'easy',
-          topic: 'alphabet sequence'
-        },
-        {
-          id: 'fallback-l2',
-          question: 'Which letter makes the "mmm" sound?',
-          options: ['N', 'M', 'W', 'V'],
-          correct: 1,
-          explanation: 'Perfect! The letter M makes the "mmm" sound!',
-          difficulty: 'easy',
-          topic: 'phonics'
-        },
-        {
-          id: 'fallback-l3',
-          question: 'What is the first letter of "apple"?',
-          options: ['A', 'P', 'L', 'E'],
-          correct: 0,
-          explanation: 'Excellent! Apple starts with the letter A!',
-          difficulty: 'easy',
-          topic: 'beginning sounds'
-        },
-        {
-          id: 'fallback-l4',
-          question: 'How many letters are in "cat"?',
-          options: ['2', '3', '4', '5'],
-          correct: 1,
-          explanation: 'Amazing! Cat has 3 letters: C-A-T!',
-          difficulty: 'easy',
-          topic: 'letter counting'
-        },
-        {
-          id: 'fallback-l5',
-          question: 'Which letter comes before D?',
-          options: ['B', 'C', 'E', 'F'],
-          correct: 1,
-          explanation: 'Wonderful! C comes right before D!',
-          difficulty: 'easy',
-          topic: 'alphabet sequence'
-        }
+        // Set 1: Alphabet sequence questions
+        [
+          {
+            id: `fallback-l1-${timestamp}`,
+            question: 'What letter comes after B in the alphabet?',
+            options: ['A', 'C', 'D', 'E'],
+            correct: 1,
+            explanation: 'Fantastic! C comes right after B in the alphabet! 🎉',
+            difficulty: 'easy',
+            topic: 'alphabet sequence'
+          },
+          {
+            id: `fallback-l2-${timestamp}`,
+            question: 'Which letter comes before F?',
+            options: ['D', 'E', 'G', 'H'],
+            correct: 1,
+            explanation: 'Perfect! E comes right before F! You\'re amazing! ⭐',
+            difficulty: 'easy',
+            topic: 'alphabet sequence'
+          },
+          {
+            id: `fallback-l3-${timestamp}`,
+            question: 'What letter is between M and O?',
+            options: ['L', 'N', 'P', 'Q'],
+            correct: 1,
+            explanation: 'Brilliant! N is right between M and O! 🌟',
+            difficulty: 'easy',
+            topic: 'alphabet sequence'
+          }
+        ],
+        // Set 2: Phonics questions
+        [
+          {
+            id: `fallback-l4-${timestamp}`,
+            question: 'Which letter makes the "ssss" sound like a snake?',
+            options: ['R', 'S', 'T', 'Z'],
+            correct: 1,
+            explanation: 'Excellent! The letter S makes the "ssss" sound! 🐍',
+            difficulty: 'easy',
+            topic: 'phonics'
+          },
+          {
+            id: `fallback-l5-${timestamp}`,
+            question: 'What sound does the letter "B" make?',
+            options: ['buh', 'puh', 'duh', 'guh'],
+            correct: 0,
+            explanation: 'Great job! B makes the "buh" sound! 🎊',
+            difficulty: 'easy',
+            topic: 'phonics'
+          },
+          {
+            id: `fallback-l6-${timestamp}`,
+            question: 'Which letter sounds like "zzz" when a bee flies?',
+            options: ['S', 'C', 'Z', 'X'],
+            correct: 2,
+            explanation: 'Amazing! Z makes the "zzz" sound like a buzzing bee! 🐝',
+            difficulty: 'easy',
+            topic: 'phonics'
+          }
+        ],
+        // Set 3: Beginning sounds
+        [
+          {
+            id: `fallback-l7-${timestamp}`,
+            question: 'What is the first letter of "rainbow"?',
+            options: ['R', 'A', 'I', 'N'],
+            correct: 0,
+            explanation: 'Wonderful! Rainbow starts with the letter R! 🌈',
+            difficulty: 'easy',
+            topic: 'beginning sounds'
+          },
+          {
+            id: `fallback-l8-${timestamp}`,
+            question: 'Which word starts with the letter "D"?',
+            options: ['Cat', 'Dog', 'Fish', 'Bird'],
+            correct: 1,
+            explanation: 'Perfect! Dog starts with the letter D! 🐕',
+            difficulty: 'easy',
+            topic: 'beginning sounds'
+          },
+          {
+            id: `fallback-l9-${timestamp}`,
+            question: 'What letter does "butterfly" begin with?',
+            options: ['B', 'F', 'L', 'T'],
+            correct: 0,
+            explanation: 'Superb! Butterfly begins with B! 🦋',
+            difficulty: 'easy',
+            topic: 'beginning sounds'
+          }
+        ]
       ],
       numbers: [
-        {
-          id: 'fallback-n1',
-          question: 'What number comes before 5?',
-          options: ['3', '4', '6', '7'],
-          correct: 1,
-          explanation: 'Perfect! 4 comes right before 5!',
-          difficulty: 'easy',
-          topic: 'number sequence'
-        },
-        {
-          id: 'fallback-n2',
-          question: 'How many dots are there? ••••',
-          options: ['3', '4', '5', '6'],
-          correct: 1,
-          explanation: 'Great counting! There are 4 dots!',
-          difficulty: 'easy',
-          topic: 'counting'
-        },
-        {
-          id: 'fallback-n3',
-          question: 'What is 2 + 2?',
-          options: ['3', '4', '5', '6'],
-          correct: 1,
-          explanation: 'Fantastic! 2 + 2 = 4!',
-          difficulty: 'easy',
-          topic: 'addition'
-        },
-        {
-          id: 'fallback-n4',
-          question: 'Which number is bigger: 7 or 3?',
-          options: ['3', '7', 'Same', 'Neither'],
-          correct: 1,
-          explanation: 'Correct! 7 is bigger than 3!',
-          difficulty: 'easy',
-          topic: 'number comparison'
-        },
-        {
-          id: 'fallback-n5',
-          question: 'What comes after 8?',
-          options: ['7', '9', '10', '6'],
-          correct: 1,
-          explanation: 'Excellent! 9 comes after 8!',
-          difficulty: 'easy',
-          topic: 'number sequence'
-        }
+        // Set 1: Counting questions
+        [
+          {
+            id: `fallback-n1-${timestamp}`,
+            question: 'How many stars are here? ⭐⭐⭐',
+            options: ['2', '3', '4', '5'],
+            correct: 1,
+            explanation: 'Excellent counting! There are 3 stars! ⭐',
+            difficulty: 'easy',
+            topic: 'counting'
+          },
+          {
+            id: `fallback-n2-${timestamp}`,
+            question: 'Count the hearts: ❤️❤️❤️❤️❤️',
+            options: ['4', '5', '6', '7'],
+            correct: 1,
+            explanation: 'Amazing! You counted 5 hearts perfectly! ❤️',
+            difficulty: 'easy',
+            topic: 'counting'
+          },
+          {
+            id: `fallback-n3-${timestamp}`,
+            question: 'How many circles? ⚪⚪',
+            options: ['1', '2', '3', '4'],
+            correct: 1,
+            explanation: 'Great job! There are 2 circles! ⚪',
+            difficulty: 'easy',
+            topic: 'counting'
+          }
+        ],
+        // Set 2: Number sequence
+        [
+          {
+            id: `fallback-n4-${timestamp}`,
+            question: 'What number comes after 7?',
+            options: ['6', '8', '9', '10'],
+            correct: 1,
+            explanation: 'Fantastic! 8 comes right after 7! 🎯',
+            difficulty: 'easy',
+            topic: 'number sequence'
+          },
+          {
+            id: `fallback-n5-${timestamp}`,
+            question: 'Which number is missing? 1, 2, ?, 4',
+            options: ['2', '3', '4', '5'],
+            correct: 1,
+            explanation: 'Perfect! The missing number is 3! 🔥',
+            difficulty: 'easy',
+            topic: 'number sequence'
+          },
+          {
+            id: `fallback-n6-${timestamp}`,
+            question: 'What comes before 10?',
+            options: ['8', '9', '11', '12'],
+            correct: 1,
+            explanation: 'Brilliant! 9 comes before 10! 🌟',
+            difficulty: 'easy',
+            topic: 'number sequence'
+          }
+        ],
+        // Set 3: Simple math
+        [
+          {
+            id: `fallback-n7-${timestamp}`,
+            question: 'What is 1 + 1?',
+            options: ['1', '2', '3', '4'],
+            correct: 1,
+            explanation: 'Awesome! 1 + 1 = 2! You\'re a math star! ✨',
+            difficulty: 'easy',
+            topic: 'addition'
+          },
+          {
+            id: `fallback-n8-${timestamp}`,
+            question: 'If you have 3 cookies and eat 1, how many are left?',
+            options: ['1', '2', '3', '4'],
+            correct: 1,
+            explanation: 'Excellent thinking! 3 - 1 = 2 cookies left! 🍪',
+            difficulty: 'easy',
+            topic: 'subtraction'
+          },
+          {
+            id: `fallback-n9-${timestamp}`,
+            question: 'What is 2 + 3?',
+            options: ['4', '5', '6', '7'],
+            correct: 1,
+            explanation: 'Outstanding! 2 + 3 = 5! Keep it up! 🎉',
+            difficulty: 'easy',
+            topic: 'addition'
+          }
+        ]
       ],
       colors: [
-        {
-          id: 'fallback-c1',
-          question: 'What color do you get when you mix red and blue?',
-          options: ['Green', 'Purple', 'Orange', 'Yellow'],
-          correct: 1,
-          explanation: 'Perfect! Red and blue make purple!',
-          difficulty: 'easy',
-          topic: 'color mixing'
-        },
-        {
-          id: 'fallback-c2',
-          question: 'What color is the sun?',
-          options: ['Blue', 'Yellow', 'Green', 'Purple'],
-          correct: 1,
-          explanation: 'Great! The sun is yellow!',
-          difficulty: 'easy',
-          topic: 'colors in nature'
-        },
-        {
-          id: 'fallback-c3',
-          question: 'What color do you get when you mix yellow and red?',
-          options: ['Purple', 'Orange', 'Green', 'Pink'],
-          correct: 1,
-          explanation: 'Amazing! Yellow and red make orange!',
-          difficulty: 'easy',
-          topic: 'color mixing'
-        },
-        {
-          id: 'fallback-c4',
-          question: 'What color are most leaves?',
-          options: ['Red', 'Blue', 'Green', 'Purple'],
-          correct: 2,
-          explanation: 'Correct! Most leaves are green!',
-          difficulty: 'easy',
-          topic: 'colors in nature'
-        },
-        {
-          id: 'fallback-c5',
-          question: 'How many colors are in a rainbow?',
-          options: ['5', '6', '7', '8'],
-          correct: 2,
-          explanation: 'Wonderful! A rainbow has 7 colors!',
-          difficulty: 'easy',
-          topic: 'rainbow colors'
-        }
+        // Set 1: Color mixing
+        [
+          {
+            id: `fallback-c1-${timestamp}`,
+            question: 'What color do you get when you mix red and yellow?',
+            options: ['Purple', 'Orange', 'Green', 'Pink'],
+            correct: 1,
+            explanation: 'Perfect! Red and yellow make orange! 🧡',
+            difficulty: 'easy',
+            topic: 'color mixing'
+          },
+          {
+            id: `fallback-c2-${timestamp}`,
+            question: 'Blue + Yellow = ?',
+            options: ['Purple', 'Orange', 'Green', 'Pink'],
+            correct: 2,
+            explanation: 'Amazing! Blue and yellow make green! 💚',
+            difficulty: 'easy',
+            topic: 'color mixing'
+          },
+          {
+            id: `fallback-c3-${timestamp}`,
+            question: 'What happens when you mix red and blue?',
+            options: ['Orange', 'Purple', 'Green', 'Yellow'],
+            correct: 1,
+            explanation: 'Fantastic! Red and blue make purple! 💜',
+            difficulty: 'easy',
+            topic: 'color mixing'
+          }
+        ],
+        // Set 2: Nature colors
+        [
+          {
+            id: `fallback-c4-${timestamp}`,
+            question: 'What color is grass?',
+            options: ['Blue', 'Green', 'Red', 'Yellow'],
+            correct: 1,
+            explanation: 'Excellent! Grass is green! 🌱',
+            difficulty: 'easy',
+            topic: 'colors in nature'
+          },
+          {
+            id: `fallback-c5-${timestamp}`,
+            question: 'What color is the sky on a sunny day?',
+            options: ['Blue', 'Green', 'Red', 'Purple'],
+            correct: 0,
+            explanation: 'Great observation! The sky is blue! ☀️',
+            difficulty: 'easy',
+            topic: 'colors in nature'
+          },
+          {
+            id: `fallback-c6-${timestamp}`,
+            question: 'What color are most tree trunks?',
+            options: ['Green', 'Blue', 'Brown', 'Purple'],
+            correct: 2,
+            explanation: 'Perfect! Tree trunks are brown! 🌳',
+            difficulty: 'easy',
+            topic: 'colors in nature'
+          }
+        ],
+        // Set 3: Fun color facts
+        [
+          {
+            id: `fallback-c7-${timestamp}`,
+            question: 'How many colors are in a rainbow?',
+            options: ['5', '6', '7', '8'],
+            correct: 2,
+            explanation: 'Wonderful! A rainbow has 7 beautiful colors! 🌈',
+            difficulty: 'easy',
+            topic: 'rainbow colors'
+          },
+          {
+            id: `fallback-c8-${timestamp}`,
+            question: 'What color do you get with NO colors mixed?',
+            options: ['Black', 'White', 'Gray', 'Brown'],
+            correct: 1,
+            explanation: 'Smart thinking! No colors make white! ⚪',
+            difficulty: 'easy',
+            topic: 'color theory'
+          },
+          {
+            id: `fallback-c9-${timestamp}`,
+            question: 'Which color is considered "warm"?',
+            options: ['Blue', 'Red', 'Green', 'Purple'],
+            correct: 1,
+            explanation: 'Great! Red is a warm color like fire! 🔥',
+            difficulty: 'easy',
+            topic: 'color temperature'
+          }
+        ]
       ]
     };
 
-    return fallbackQuestions[module] || [];
+    // Randomly select a question set for variety
+    const questionSets = allFallbackQuestions[module] || [];
+    if (questionSets.length === 0) {
+      return []; // Return empty if module not found
+    }
+    
+    // Use seed to consistently pick the same set per session but vary between sessions
+    const setIndex = (seed % questionSets.length);
+    const selectedSet = questionSets[setIndex];
+    
+    // Shuffle the questions within the set for more variety
+    const shuffled = [...selectedSet].sort(() => Math.random() - 0.5);
+    
+    console.log(`Using fallback question set ${setIndex + 1}/${questionSets.length} for ${module}`);
+    
+    return shuffled.slice(0, 5); // Return up to 5 questions
   }
 
   /**
-   * Fallback encouragement messages when AI is unavailable
+   * Enhanced fallback encouragement with much more variety
    */
   private getFallbackEncouragement(isCorrect: boolean, streak: number = 0): AIEncouragement {
+    const timestamp = Date.now();
+    
     const correctMessages = [
-      'Great job!', 'You\'re amazing!', 'Well done!', 'Fantastic!', 'Awesome work!',
-      'Perfect!', 'Brilliant!', 'Outstanding!', 'Excellent!', 'Superb!',
-      'You nailed it!', 'Way to go!', 'Incredible!', 'Marvelous!', 'Terrific!'
+      'Absolutely fantastic!', 'You\'re incredible!', 'Outstanding work!', 'Phenomenal job!',
+      'You\'re a superstar!', 'Brilliant thinking!', 'Magnificent!', 'You nailed it!',
+      'Spectacular!', 'You\'re on fire!', 'Impressive!', 'Marvelous work!',
+      'You\'re amazing!', 'Extraordinary!', 'Stupendous!', 'You\'re a genius!',
+      'Fabulous!', 'You rock!', 'Incredible job!', 'You\'re unstoppable!',
+      'Sensational!', 'You\'re a champion!', 'Remarkable!', 'You\'re brilliant!',
+      'Exceptional work!', 'You\'re wonderful!', 'Terrific job!', 'You\'re fantastic!'
     ];
     
     const incorrectMessages = [
-      'Good try!', 'Keep learning!', 'You\'re getting better!', 'Nice effort!',
-      'Almost there!', 'Try again!', 'You can do it!', 'Don\'t give up!',
-      'Learning is a journey!', 'Every mistake helps you grow!', 'Keep going!',
-      'You\'re doing great!', 'Practice makes perfect!', 'Stay curious!', 'Keep trying!'
+      'Great effort!', 'You\'re learning so well!', 'Nice try, keep going!', 'You\'re getting stronger!',
+      'Every mistake helps you grow!', 'You\'re doing amazing!', 'Keep up the good work!', 'You\'re on the right track!',
+      'Learning is an adventure!', 'You\'re becoming smarter!', 'Great attempt!', 'You\'re improving!',
+      'Keep exploring!', 'You\'re so curious!', 'That\'s how we learn!', 'You\'re getting closer!',
+      'Wonderful effort!', 'You\'re building your brain!', 'Keep thinking!', 'You\'re so brave to try!',
+      'Learning takes practice!', 'You\'re getting better!', 'Keep it up!', 'You\'re doing great!',
+      'Every try makes you stronger!', 'You\'re so determined!', 'Keep discovering!', 'You\'re amazing!'
     ];
     
-    const correctEmojis = ['🎉', '⭐', '🌟', '👏', '🎊', '🏆', '💫', '🎯', '🔥', '✨'];
-    const incorrectEmojis = ['💪', '🌱', '🤗', '💡', '🌈', '🎈', '🦋', '🌸', '🎪', '🎭'];
+    const correctEmojis = ['🎉', '⭐', '🌟', '👏', '🎊', '🏆', '💫', '🎯', '🔥', '✨', '💎', '🚀', '🌈', '💝', '🎪'];
+    const incorrectEmojis = ['💪', '🌱', '🤗', '💡', '🌈', '🎈', '🦋', '🌸', '🎪', '🎭', '🌟', '💫', '🔍', '🎨', '🌻'];
+    
+    // Use timestamp to create pseudo-randomness that changes over time
+    const messageIndex = Math.floor((timestamp / 1000) % (isCorrect ? correctMessages.length : incorrectMessages.length));
+    const emojiIndex = Math.floor((timestamp / 2000) % (isCorrect ? correctEmojis.length : incorrectEmojis.length));
     
     const messages = isCorrect ? correctMessages : incorrectMessages;
     const emojis = isCorrect ? correctEmojis : incorrectEmojis;
     
-    // Add special messages for streaks
+    // Special streak messages for correct answers
     if (isCorrect && streak >= 3) {
       const streakMessages = [
-        `Amazing streak of ${streak}! You're on fire!`,
-        `Wow! ${streak} in a row! You're unstoppable!`,
-        `Incredible! ${streak} correct answers! Keep it up!`,
-        `${streak} perfect answers! You're a superstar!`
+        `Incredible ${streak}-question streak! You're unstoppable!`,
+        `WOW! ${streak} perfect answers in a row! You're a superstar!`,
+        `Amazing streak of ${streak}! Your brain is on fire!`,
+        `${streak} correct answers! You're absolutely brilliant!`,
+        `Phenomenal ${streak}-question streak! Keep soaring!`,
+        `${streak} in a row! You're a learning champion!`,
+        `Spectacular ${streak}-question streak! You're incredible!`,
+        `${streak} perfect answers! You're a quiz master!`
       ];
+      
+      const streakIndex = Math.floor((timestamp / 1500) % streakMessages.length);
       return {
-        message: streakMessages[Math.floor(Math.random() * streakMessages.length)],
+        message: streakMessages[streakIndex],
         emoji: '🔥',
         celebrationType: 'correct'
       };
     }
     
     return {
-      message: messages[Math.floor(Math.random() * messages.length)],
-      emoji: emojis[Math.floor(Math.random() * emojis.length)],
+      message: messages[messageIndex],
+      emoji: emojis[emojiIndex],
       celebrationType: isCorrect ? 'correct' : 'incorrect'
     };
   }
@@ -622,6 +874,52 @@ Format as JSON array:
    */
   isAIEnabled(): boolean {
     return this.isConfigured;
+  }
+
+  /**
+   * Test method to verify AI connectivity and response format
+   * Useful for debugging AI integration issues
+   */
+  async testAIConnection(): Promise<{ success: boolean; error?: string; response?: string }> {
+    if (!this.isConfigured) {
+      return { success: false, error: 'AI not configured - no API key found' };
+    }
+
+    try {
+      console.log('Testing AI connection...');
+      const response = await this.openai.chat.completions.create({
+        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant. Respond with valid JSON only."
+          },
+          {
+            role: "user",
+            content: 'Generate a simple test response in JSON format: {"test": "success", "message": "AI is working"}'
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 100
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (!content) {
+        return { success: false, error: 'No content in response' };
+      }
+
+      // Try to parse the response
+      const parsed = JSON.parse(content);
+      console.log('AI test successful:', parsed);
+      
+      return { success: true, response: content };
+    } catch (error) {
+      console.error('AI test failed:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      };
+    }
   }
 }
 
