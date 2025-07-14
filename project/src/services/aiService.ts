@@ -1,106 +1,197 @@
 /**
- * AI Service - OpenAI Integration
+ * AI Service - Multi-Provider Support
  * 
- * This service handles all AI-powered features including:
+ * This service handles all AI-powered features with support for:
+ * - Google Gemini API (Primary, Free)
+ * - OpenAI API (Fallback)
+ * - Azure OpenAI (Enterprise)
+ * 
+ * Features:
  * - Dynamic question generation based on child's progress
  * - Personalized explanations and encouragement
  * - Adaptive difficulty adjustment
  * - Learning analytics and recommendations
  */
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { AIQuestion, QuestionGenerationConfig, AIEncouragement, LearningAnalytics } from '../types/ai';
 
+type AIProvider = 'gemini' | 'openai' | 'azure' | 'fallback';
+
 class AIService {
+  private gemini!: GoogleGenerativeAI;
   private openai!: OpenAI;
   private isConfigured: boolean = false;
+  private provider: AIProvider = 'fallback';
 
   constructor() {
-    // Check for Azure OpenAI configuration first, then fallback to regular OpenAI
+    this.initializeAIProviders();
+  }
+
+  private initializeAIProviders() {
+    // Priority 1: Google Gemini (Free, no credit card required)
+    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (geminiApiKey) {
+      try {
+        this.gemini = new GoogleGenerativeAI(geminiApiKey);
+        this.provider = 'gemini';
+        this.isConfigured = true;
+        console.log('AI Service: Configured with Google Gemini');
+        return;
+      } catch (error) {
+        console.warn('Failed to initialize Gemini:', error);
+      }
+    }
+
+    // Priority 2: Azure OpenAI
     const azureApiKey = import.meta.env.VITE_AZURE_OPENAI_API_KEY;
     const azureEndpoint = import.meta.env.VITE_AZURE_OPENAI_ENDPOINT;
     const azureApiVersion = import.meta.env.VITE_AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
     
-    const regularApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    
     if (azureApiKey && azureEndpoint) {
-      // Use Azure OpenAI
-      this.openai = new OpenAI({
-        apiKey: azureApiKey,
-        baseURL: `${azureEndpoint}/openai/deployments`,
-        defaultQuery: { 'api-version': azureApiVersion },
-        defaultHeaders: {
-          'api-key': azureApiKey,
-        },
-        dangerouslyAllowBrowser: import.meta.env.DEV
-      });
-      this.isConfigured = true;
-      console.log('AI Service: Configured with Azure OpenAI');
-    } else if (regularApiKey) {
-      // Use regular OpenAI
-      this.openai = new OpenAI({
-        apiKey: regularApiKey,
-        dangerouslyAllowBrowser: import.meta.env.DEV
-      });
-      this.isConfigured = true;
-      console.log('AI Service: Configured with OpenAI');
-    } else {
-      console.warn('No AI API key found. AI features will use fallback data.');
-      this.isConfigured = false;
+      try {
+        this.openai = new OpenAI({
+          apiKey: azureApiKey,
+          baseURL: `${azureEndpoint}/openai/deployments`,
+          defaultQuery: { 'api-version': azureApiVersion },
+          defaultHeaders: {
+            'api-key': azureApiKey,
+          },
+          dangerouslyAllowBrowser: import.meta.env.DEV
+        });
+        this.provider = 'azure';
+        this.isConfigured = true;
+        console.log('AI Service: Configured with Azure OpenAI');
+        return;
+      } catch (error) {
+        console.warn('Failed to initialize Azure OpenAI:', error);
+      }
     }
+
+    // Priority 3: Regular OpenAI
+    const regularApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    if (regularApiKey) {
+      try {
+        this.openai = new OpenAI({
+          apiKey: regularApiKey,
+          dangerouslyAllowBrowser: import.meta.env.DEV
+        });
+        this.provider = 'openai';
+        this.isConfigured = true;
+        console.log('AI Service: Configured with OpenAI');
+        return;
+      } catch (error) {
+        console.warn('Failed to initialize OpenAI:', error);
+      }
+    }
+
+    // No AI providers configured
+    console.warn('No AI API keys found. AI features will use enhanced fallback data.');
+    this.provider = 'fallback';
+    this.isConfigured = false;
   }
 
   /**
    * Generates personalized questions based on child's learning progress
-   * Uses GPT to create age-appropriate, engaging questions
+   * Uses the best available AI provider (Gemini preferred, then OpenAI)
    */
   async generateQuestions(config: QuestionGenerationConfig): Promise<AIQuestion[]> {
     if (!this.isConfigured) {
-      console.log('AI not configured, using fallback questions');
+      console.log('AI not configured, using enhanced fallback questions');
       return this.getFallbackQuestions(config.module);
     }
 
     try {
-      console.log('Generating AI questions for module:', config.module);
-      const prompt = this.buildQuestionPrompt(config);
+      console.log(`Generating AI questions for module: ${config.module} using ${this.provider}`);
       
-      const response = await this.openai.chat.completions.create({
-        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert kindergarten teacher and child development specialist. Create engaging, age-appropriate learning questions that are fun and educational. Always respond with valid JSON format."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.8, // Higher creativity for varied questions
-        max_tokens: 2000
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        console.error('No content in AI response');
-        return this.getFallbackQuestions(config.module);
+      if (this.provider === 'gemini') {
+        return await this.generateQuestionsWithGemini(config);
+      } else {
+        return await this.generateQuestionsWithOpenAI(config);
       }
-
-      const aiQuestions = this.parseQuestionsFromResponse(content);
-      
-      // If parsing failed or returned no questions, use fallback
-      if (aiQuestions.length === 0) {
-        console.log('AI question parsing failed, using fallback questions');
-        return this.getFallbackQuestions(config.module);
-      }
-      
-      console.log(`Successfully generated ${aiQuestions.length} AI questions`);
-      return aiQuestions;
-      
     } catch (error) {
       console.error('AI question generation failed:', error);
       return this.getFallbackQuestions(config.module);
     }
+  }
+
+  /**
+   * Generate questions using Google Gemini
+   */
+  private async generateQuestionsWithGemini(config: QuestionGenerationConfig): Promise<AIQuestion[]> {
+    const prompt = this.buildQuestionPrompt(config);
+    
+    const model = this.gemini.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        temperature: 0.8,
+        maxOutputTokens: 2000,
+      }
+    });
+
+    const result = await model.generateContent([
+      `You are an expert kindergarten teacher and child development specialist. Create engaging, age-appropriate learning questions that are fun and educational. Always respond with valid JSON format only.\n\n${prompt}`
+    ]);
+
+    const response = await result.response;
+    const content = response.text();
+    
+    if (!content) {
+      throw new Error('No content in Gemini response');
+    }
+
+    const aiQuestions = this.parseQuestionsFromResponse(content);
+    
+    if (aiQuestions.length === 0) {
+      console.log('Gemini question parsing failed, using fallback questions');
+      return this.getFallbackQuestions(config.module);
+    }
+    
+    console.log(`Successfully generated ${aiQuestions.length} Gemini questions`);
+    return aiQuestions;
+  }
+
+  /**
+   * Generate questions using OpenAI (Azure or regular)
+   */
+  private async generateQuestionsWithOpenAI(config: QuestionGenerationConfig): Promise<AIQuestion[]> {
+    const prompt = this.buildQuestionPrompt(config);
+    
+    const modelName = this.provider === 'azure' 
+      ? (import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo")
+      : "gpt-3.5-turbo";
+
+    const response = await this.openai.chat.completions.create({
+      model: modelName,
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert kindergarten teacher and child development specialist. Create engaging, age-appropriate learning questions that are fun and educational. Always respond with valid JSON format."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.8,
+      max_tokens: 2000
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error('No content in OpenAI response');
+    }
+
+    const aiQuestions = this.parseQuestionsFromResponse(content);
+    
+    if (aiQuestions.length === 0) {
+      console.log('OpenAI question parsing failed, using fallback questions');
+      return this.getFallbackQuestions(config.module);
+    }
+    
+    console.log(`Successfully generated ${aiQuestions.length} OpenAI questions`);
+    return aiQuestions;
   }
 
   /**
@@ -117,72 +208,80 @@ class AIService {
     }
 
     try {
-      // Add variety to encouragement generation
-      const encouragementStyles = [
-        'enthusiastic and celebratory',
-        'warm and nurturing',
-        'playful and fun',
-        'proud and supportive',
-        'motivational and inspiring'
-      ];
-      
-      const randomStyle = encouragementStyles[Math.floor(Math.random() * encouragementStyles.length)];
-      const timestamp = Date.now();
-      
-      let streakContext = '';
-      if (streak > 0) {
-        streakContext = streak >= 5 ? 'amazing streak - they are on fire!' : 
-                       streak >= 3 ? 'good streak going' : 
-                       'building momentum';
+      if (this.provider === 'gemini') {
+        return await this.generateEncouragementWithGemini(isCorrect, childName, streak);
+      } else {
+        return await this.generateEncouragementWithOpenAI(isCorrect, childName, streak);
       }
-
-      const prompt = `Create a ${randomStyle} encouragement message for a kindergarten child named ${childName}. 
-      
-      Context:
-      - They just ${isCorrect ? 'answered correctly' : 'made a mistake'}
-      - Current streak: ${streak} correct answers ${streakContext}
-      - Generation ID: ${timestamp} (ensure uniqueness)
-      - Style: ${randomStyle}
-      
-      Requirements:
-      - Make it warm, supportive, and age-appropriate
-      - Include a relevant emoji that matches the tone
-      - Vary the language and approach from typical responses
-      - ${isCorrect ? 'Celebrate their success with enthusiasm' : 'Encourage them to keep trying with positivity'}
-      - Use different vocabulary and phrases each time
-      - Keep it concise but meaningful
-      
-      Format: {"message": "your varied message", "emoji": "appropriate emoji"}`;
-
-      const response = await this.openai.chat.completions.create({
-        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
-        messages: [
-          {
-            role: "system",
-            content: "You are a caring, enthusiastic kindergarten teacher who always encourages children positively. Vary your responses to keep them fresh and engaging. Never repeat the same phrases or patterns."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.9, // Higher temperature for more variety
-        max_tokens: 150
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) throw new Error('No response from AI');
-
-      const parsed = JSON.parse(content);
-      return {
-        message: parsed.message,
-        emoji: parsed.emoji,
-        celebrationType: isCorrect ? 'correct' : 'incorrect'
-      };
     } catch (error) {
       console.error('AI encouragement generation failed:', error);
       return this.getFallbackEncouragement(isCorrect, streak);
     }
+  }
+
+  /**
+   * Generate encouragement using Google Gemini
+   */
+  private async generateEncouragementWithGemini(
+    isCorrect: boolean,
+    childName: string,
+    streak: number
+  ): Promise<AIEncouragement> {
+    const prompt = this.buildEncouragementPrompt(isCorrect, childName, streak);
+    
+    const model = this.gemini.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        temperature: 0.9,
+        maxOutputTokens: 150,
+      }
+    });
+
+    const result = await model.generateContent([
+      `You are a caring, enthusiastic kindergarten teacher who always encourages children positively. Vary your responses to keep them fresh and engaging. Never repeat the same phrases or patterns. Always respond with valid JSON format only.\n\n${prompt}`
+    ]);
+
+    const response = await result.response;
+    const content = response.text();
+    
+    if (!content) throw new Error('No response from Gemini');
+
+    return this.parseEncouragementFromResponse(content, isCorrect);
+  }
+
+  /**
+   * Generate encouragement using OpenAI
+   */
+  private async generateEncouragementWithOpenAI(
+    isCorrect: boolean,
+    childName: string,
+    streak: number
+  ): Promise<AIEncouragement> {
+    const prompt = this.buildEncouragementPrompt(isCorrect, childName, streak);
+    const modelName = this.provider === 'azure' 
+      ? (import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo")
+      : "gpt-3.5-turbo";
+
+    const response = await this.openai.chat.completions.create({
+      model: modelName,
+      messages: [
+        {
+          role: "system",
+          content: "You are a caring, enthusiastic kindergarten teacher who always encourages children positively. Vary your responses to keep them fresh and engaging. Never repeat the same phrases or patterns."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0.9,
+      max_tokens: 150
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error('No response from OpenAI');
+
+    return this.parseEncouragementFromResponse(content, isCorrect);
   }
 
   /**
@@ -878,47 +977,164 @@ Format as JSON array (exactly like this example):
 
   /**
    * Test method to verify AI connectivity and response format
-   * Useful for debugging AI integration issues
+   * Tests the configured AI provider (Gemini, OpenAI, or Azure)
    */
-  async testAIConnection(): Promise<{ success: boolean; error?: string; response?: string }> {
+  async testAIConnection(): Promise<{ success: boolean; error?: string; response?: string; provider?: string }> {
     if (!this.isConfigured) {
       return { success: false, error: 'AI not configured - no API key found' };
     }
 
     try {
-      console.log('Testing AI connection...');
-      const response = await this.openai.chat.completions.create({
-        model: import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo", // Azure deployment name or fallback
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful assistant. Respond with valid JSON only."
-          },
-          {
-            role: "user",
-            content: 'Generate a simple test response in JSON format: {"test": "success", "message": "AI is working"}'
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 100
-      });
-
-      const content = response.choices[0]?.message?.content;
-      if (!content) {
-        return { success: false, error: 'No content in response' };
-      }
-
-      // Try to parse the response
-      const parsed = JSON.parse(content);
-      console.log('AI test successful:', parsed);
+      console.log(`Testing AI connection with ${this.provider}...`);
       
-      return { success: true, response: content };
+      if (this.provider === 'gemini') {
+        return await this.testGeminiConnection();
+      } else {
+        return await this.testOpenAIConnection();
+      }
     } catch (error) {
       console.error('AI test failed:', error);
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.provider
       };
+    }
+  }
+
+  /**
+   * Test Gemini connection
+   */
+  private async testGeminiConnection(): Promise<{ success: boolean; error?: string; response?: string; provider: string }> {
+    const model = this.gemini.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 100,
+      }
+    });
+
+    const result = await model.generateContent([
+      { text: 'Generate a simple test response in JSON format: {"test": "success", "message": "Gemini is working"}' }
+    ]);
+
+    const response = await result.response;
+    const content = response.text();
+    
+    if (!content) {
+      return { success: false, error: 'No content in Gemini response', provider: 'gemini' };
+    }
+
+    // Try to parse the response
+    try {
+      const parsed = JSON.parse(content.replace(/```json\s*/g, '').replace(/```\s*$/g, ''));
+      console.log('Gemini test successful:', parsed);
+      return { success: true, response: content, provider: 'gemini' };
+    } catch (parseError) {
+      console.log('Gemini test successful (non-JSON response):', content);
+      return { success: true, response: content, provider: 'gemini' };
+    }
+  }
+
+  /**
+   * Test OpenAI connection
+   */
+  private async testOpenAIConnection(): Promise<{ success: boolean; error?: string; response?: string; provider: string }> {
+    const modelName = this.provider === 'azure' 
+      ? (import.meta.env.VITE_AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-35-turbo")
+      : "gpt-3.5-turbo";
+
+    const response = await this.openai.chat.completions.create({
+      model: modelName,
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant. Respond with valid JSON only."
+        },
+        {
+          role: "user",
+          content: 'Generate a simple test response in JSON format: {"test": "success", "message": "OpenAI is working"}'
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 100
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return { success: false, error: 'No content in response', provider: this.provider };
+    }
+
+    // Try to parse the response
+    const parsed = JSON.parse(content);
+    console.log(`${this.provider} test successful:`, parsed);
+    
+    return { success: true, response: content, provider: this.provider };
+  }
+
+  /**
+   * Builds encouragement prompt for AI generation
+   */
+  private buildEncouragementPrompt(isCorrect: boolean, childName: string, streak: number): string {
+    const encouragementStyles = [
+      'enthusiastic and celebratory',
+      'warm and nurturing',
+      'playful and fun',
+      'proud and supportive',
+      'motivational and inspiring'
+    ];
+    
+    const randomStyle = encouragementStyles[Math.floor(Math.random() * encouragementStyles.length)];
+    const timestamp = Date.now();
+    
+    let streakContext = '';
+    if (streak > 0) {
+      streakContext = streak >= 5 ? 'amazing streak - they are on fire!' : 
+                     streak >= 3 ? 'good streak going' : 
+                     'building momentum';
+    }
+
+    return `Create a ${randomStyle} encouragement message for a kindergarten child named ${childName}. 
+    
+    Context:
+    - They just ${isCorrect ? 'answered correctly' : 'made a mistake'}
+    - Current streak: ${streak} correct answers ${streakContext}
+    - Generation ID: ${timestamp} (ensure uniqueness)
+    - Style: ${randomStyle}
+    
+    Requirements:
+    - Make it warm, supportive, and age-appropriate
+    - Include a relevant emoji that matches the tone
+    - Vary the language and approach from typical responses
+    - ${isCorrect ? 'Celebrate their success with enthusiasm' : 'Encourage them to keep trying with positivity'}
+    - Use different vocabulary and phrases each time
+    - Keep it concise but meaningful
+    
+    Format: {"message": "your varied message", "emoji": "appropriate emoji"}`;
+  }
+
+  /**
+   * Parses encouragement response from AI
+   */
+  private parseEncouragementFromResponse(response: string, isCorrect: boolean): AIEncouragement {
+    try {
+      // Clean up the response to handle potential markdown formatting
+      let cleanResponse = response.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/```json\s*/g, '').replace(/```\s*$/g, '');
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/```\s*/g, '').replace(/```\s*$/g, '');
+      }
+      
+      const parsed = JSON.parse(cleanResponse);
+      return {
+        message: parsed.message || 'Great work!',
+        emoji: parsed.emoji || (isCorrect ? '🎉' : '💪'),
+        celebrationType: isCorrect ? 'correct' : 'incorrect'
+      };
+    } catch (error) {
+      console.error('Failed to parse encouragement response:', error);
+      return this.getFallbackEncouragement(isCorrect, 0);
     }
   }
 }
