@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { databaseService } from '../services/databaseService';
 import { Child, ChildProgress, LearningSession } from '../types/database';
+import { supabase } from '../lib/supabase';
 
 /**
  * Hook for managing children

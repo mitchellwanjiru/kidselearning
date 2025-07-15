@@ -5,7 +5,7 @@
  * It handles loading states, error handling, and caching for better performance.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { aiService } from '../services/aiService';
 import { AIQuestion, AIEncouragement, LearningAnalytics, QuestionGenerationConfig } from '../types/ai';
 
