@@ -107,7 +107,15 @@ function MainApp({ user }: { user: User }) {
 
   // View state management
   const [currentView, setCurrentView] = useState<
-    "home" | "module" | "quiz" | "analytics" | "teacher" | "game"
+    | "home"
+    | "module"
+    | "quiz"
+    | "analytics"
+    | "teacher"
+    | "game"
+    | "memory"
+    | "colors"
+    | "math"
   >("home");
   const [selectedModule, setSelectedModule] = useState<LearningModule | null>(
     null
@@ -119,9 +127,7 @@ function MainApp({ user }: { user: User }) {
   const [showAnswer, setShowAnswer] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [, setIncorrectQuestions] = useState<AIQuestion[]>(
-    []
-  );
+  const [, setIncorrectQuestions] = useState<AIQuestion[]>([]);
   const [, setShowPractice] = useState(false);
   const [isPracticeMode, setIsPracticeMode] = useState(false);
 
@@ -809,14 +815,16 @@ function MainApp({ user }: { user: User }) {
           </div>
         )}
 
-        {/* Game Unlock Button */}
+        {/* Game Unlock Button - Updated to show game center */}
         {progress.totalPoints >= 50 && (
           <div className="text-center mt-4">
             <button
               onClick={() => setCurrentView("game")}
               className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white py-3 px-6 rounded-2xl font-bold hover:from-yellow-500 hover:to-orange-600 transform hover:scale-105 transition-all duration-300 shadow-lg"
             >
-              🎮 Play Memory Game! (Unlocked!)
+              🎮 Game Center! (
+              {Math.min(3, Math.floor(progress.totalPoints / 50))} games
+              unlocked!)
             </button>
           </div>
         )}
@@ -1308,9 +1316,134 @@ function MainApp({ user }: { user: User }) {
   };
 
   /**
-   * Memory Game component - Unlocked when child reaches certain points
+   * Game Selection View - Shows available games based on points
    */
-  const GameView = () => {
+  const GameSelectionView = () => {
+    const games = [
+      {
+        id: "memory",
+        title: "🧠 Memory Game",
+        description: "Find matching pairs of cute animals!",
+        unlockPoints: 50,
+        color: "from-yellow-400 to-orange-500",
+        icon: "🎮",
+      },
+      {
+        id: "colors",
+        title: "🎨 Color Quest",
+        description: "Mix colors and paint the rainbow!",
+        unlockPoints: 100,
+        color: "from-pink-400 to-purple-500",
+        icon: "🌈",
+      },
+      {
+        id: "math",
+        title: "🚀 Space Math",
+        description: "Help the rocket reach the stars with math!",
+        unlockPoints: 150,
+        color: "from-blue-400 to-indigo-500",
+        icon: "🚀",
+      },
+    ];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-yellow-100 via-orange-100 to-red-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={goHome}
+              className="bg-white p-3 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+            >
+              <Home className="text-purple-600 text-xl" />
+            </button>
+            <div className="text-center">
+              <h1 className="text-4xl font-bold text-orange-800">
+                🎮 Game Center
+              </h1>
+              <p className="text-orange-600">Choose your adventure!</p>
+            </div>
+            <div className="w-12"></div>
+          </div>
+
+          {/* Games Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {games.map((game) => {
+              const isUnlocked = progress.totalPoints >= game.unlockPoints;
+
+              return (
+                <div
+                  key={game.id}
+                  className={`relative bg-white rounded-3xl shadow-xl p-6 transform transition-all duration-300 ${
+                    isUnlocked ? "hover:scale-105 cursor-pointer" : "opacity-60"
+                  }`}
+                  onClick={() => isUnlocked && setCurrentView(game.id as any)}
+                >
+                  {/* Lock indicator for locked games */}
+                  {!isUnlocked && (
+                    <div className="absolute top-4 right-4 bg-gray-400 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm">
+                      🔒
+                    </div>
+                  )}
+
+                  <div
+                    className={`bg-gradient-to-br ${game.color} p-6 rounded-2xl mb-4`}
+                  >
+                    <div className="text-center text-6xl">{game.icon}</div>
+                  </div>
+
+                  <h3 className="text-xl font-bold text-gray-800 mb-2 text-center">
+                    {game.title}
+                  </h3>
+
+                  <p className="text-gray-600 text-center mb-4">
+                    {game.description}
+                  </p>
+
+                  <div className="text-center">
+                    {isUnlocked ? (
+                      <button className="bg-gradient-to-r from-green-400 to-blue-500 text-white py-2 px-4 rounded-xl font-bold hover:from-green-500 hover:to-blue-600 transition-all">
+                        Play Now! ✨
+                      </button>
+                    ) : (
+                      <div className="text-gray-500">
+                        <p className="text-sm font-medium">
+                          Unlock at {game.unlockPoints} points
+                        </p>
+                        <p className="text-xs">
+                          ({game.unlockPoints - progress.totalPoints} more
+                          needed)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Progress indicator */}
+          <div className="mt-8 bg-white rounded-2xl p-6 text-center">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">
+              Your Game Progress
+            </h3>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Star className="text-yellow-500 text-xl" />
+              <span className="text-2xl font-bold text-purple-600">
+                {progress.totalPoints} points
+              </span>
+            </div>
+            <p className="text-gray-600">Keep learning to unlock more games!</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Memory Game (existing) - Unlocks at 50 points
+   */
+  const MemoryGameView = () => {
     const [gameCards, setGameCards] = useState<
       { id: number; emoji: string; isFlipped: boolean; isMatched: boolean }[]
     >([]);
@@ -1388,14 +1521,14 @@ function MainApp({ user }: { user: User }) {
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <button
-              onClick={goHome}
+              onClick={() => setCurrentView("game")}
               className="bg-white p-3 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
             >
               <Home className="text-purple-600 text-xl" />
             </button>
             <div className="text-center">
               <h1 className="text-3xl font-bold text-orange-800">
-                🎮 Memory Game
+                🧠 Memory Game
               </h1>
               <p className="text-orange-600">Score: {gameScore} points</p>
             </div>
@@ -1411,12 +1544,43 @@ function MainApp({ user }: { user: User }) {
               <p className="text-xl text-gray-700 mb-6">
                 You completed the memory game and earned 50 bonus points!
               </p>
-              <button
-                onClick={goHome}
-                className="bg-gradient-to-r from-green-400 to-blue-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-green-500 hover:to-blue-600 transform hover:scale-105 transition-all duration-300"
-              >
-                Back to Learning! 🚀
-              </button>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => {
+                    setGameComplete(false);
+                    setGameScore(0);
+                    setFlippedCards([]);
+                    const emojis = [
+                      "🐶",
+                      "🐱",
+                      "🐭",
+                      "🐹",
+                      "🐰",
+                      "🦊",
+                      "🐻",
+                      "🐼",
+                    ];
+                    const shuffledCards = [...emojis, ...emojis]
+                      .sort(() => Math.random() - 0.5)
+                      .map((emoji, index) => ({
+                        id: index,
+                        emoji,
+                        isFlipped: false,
+                        isMatched: false,
+                      }));
+                    setGameCards(shuffledCards);
+                  }}
+                  className="bg-gradient-to-r from-purple-400 to-pink-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-purple-500 hover:to-pink-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  Play Again! 🔄
+                </button>
+                <button
+                  onClick={() => setCurrentView("game")}
+                  className="bg-gradient-to-r from-green-400 to-blue-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-green-500 hover:to-blue-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  More Games! 🎮
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-white rounded-3xl shadow-xl p-8">
@@ -1445,6 +1609,390 @@ function MainApp({ user }: { user: User }) {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Color Quest Game - Unlocks at 100 points
+   */
+  const ColorGameView = () => {
+    const [currentLevel, setCurrentLevel] = useState(0);
+    const [gameScore, setGameScore] = useState(0);
+    const [selectedColors, setSelectedColors] = useState<string[]>([]);
+    const [gameComplete, setGameComplete] = useState(false);
+    const [showResult, setShowResult] = useState(false);
+
+    const colorChallenges = [
+      {
+        question: "Mix red and blue to make...",
+        colors: ["red", "blue"],
+        result: "purple",
+        options: ["purple", "green", "orange", "yellow"],
+      },
+      {
+        question: "Mix yellow and red to make...",
+        colors: ["yellow", "red"],
+        result: "orange",
+        options: ["green", "orange", "purple", "blue"],
+      },
+      {
+        question: "Mix blue and yellow to make...",
+        colors: ["blue", "yellow"],
+        result: "green",
+        options: ["orange", "purple", "green", "pink"],
+      },
+      {
+        question: "What color is the sun?",
+        colors: [],
+        result: "yellow",
+        options: ["yellow", "orange", "red", "blue"],
+      },
+      {
+        question: "What color is grass?",
+        colors: [],
+        result: "green",
+        options: ["blue", "green", "red", "yellow"],
+      },
+    ];
+
+    type ColorKey =
+      | "red"
+      | "blue"
+      | "yellow"
+      | "green"
+      | "purple"
+      | "orange"
+      | "pink";
+
+    const colorStyles: Record<ColorKey, string> = {
+      red: "bg-red-500",
+      blue: "bg-blue-500",
+      yellow: "bg-yellow-500",
+      green: "bg-green-500",
+      purple: "bg-purple-500",
+      orange: "bg-orange-500",
+      pink: "bg-pink-500",
+    };
+
+    const handleColorAnswer = (answer: string) => {
+      const isCorrect = answer === colorChallenges[currentLevel].result;
+      setShowResult(true);
+
+      if (isCorrect) {
+        setGameScore((prev) => prev + 20);
+      }
+
+      setTimeout(() => {
+        if (currentLevel < colorChallenges.length - 1) {
+          setCurrentLevel((prev) => prev + 1);
+          setShowResult(false);
+          setSelectedColors([]);
+        } else {
+          setGameComplete(true);
+          setProgress((prev) => ({
+            ...prev,
+            totalPoints: prev.totalPoints + 75,
+          }));
+        }
+      }, 2000);
+    };
+
+    const challenge = colorChallenges[currentLevel];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-pink-100 via-purple-100 to-blue-100 p-4">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={() => setCurrentView("game")}
+              className="bg-white p-3 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+            >
+              <Home className="text-purple-600 text-xl" />
+            </button>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-purple-800">
+                🎨 Color Quest
+              </h1>
+              <p className="text-purple-600">
+                Level {currentLevel + 1} • Score: {gameScore} points
+              </p>
+            </div>
+            <div className="w-12"></div>
+          </div>
+
+          {gameComplete ? (
+            <div className="bg-white rounded-3xl shadow-xl p-8 text-center">
+              <div className="text-6xl mb-4">🌈</div>
+              <h2 className="text-3xl font-bold text-purple-600 mb-4">
+                Amazing Artist!
+              </h2>
+              <p className="text-xl text-gray-700 mb-6">
+                You mastered all the colors and earned 75 bonus points!
+              </p>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => {
+                    setGameComplete(false);
+                    setCurrentLevel(0);
+                    setGameScore(0);
+                    setShowResult(false);
+                    setSelectedColors([]);
+                  }}
+                  className="bg-gradient-to-r from-purple-400 to-pink-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-purple-500 hover:to-pink-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  Paint Again! 🎨
+                </button>
+                <button
+                  onClick={() => setCurrentView("game")}
+                  className="bg-gradient-to-r from-green-400 to-blue-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-green-500 hover:to-blue-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  More Games! 🎮
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl shadow-xl p-8">
+              <div className="text-center mb-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                  {challenge.question}
+                </h2>
+
+                {/* Color mixing visual */}
+                {challenge.colors.length > 0 && (
+                  <div className="flex items-center justify-center gap-4 mb-6">
+                    {challenge.colors.map((color, index) => (
+                      <React.Fragment key={color}>
+                        <div
+                          className={`w-16 h-16 rounded-full ${colorStyles[color as ColorKey]} border-4 border-white shadow-lg`}
+                        ></div>
+                        {index < challenge.colors.length - 1 && (
+                          <span className="text-3xl">+</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                    {challenge.colors.length > 0 && (
+                      <span className="text-3xl">=</span>
+                    )}
+                    <span className="text-3xl">?</span>
+                  </div>
+                )}
+              </div>
+
+              {!showResult ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
+                  {challenge.options.map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => handleColorAnswer(option)}
+                      className={`p-6 rounded-2xl transition-all duration-300 hover:scale-105 border-4 border-white shadow-lg ${colorStyles[option as ColorKey]}`}
+                    >
+                      <div className="text-white font-bold text-lg capitalize">
+                        {option}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center">
+                  <div
+                    className={`w-24 h-24 rounded-full mx-auto mb-4 border-4 border-white shadow-lg ${
+                      colorStyles[challenge.result as ColorKey]
+                    }`}
+                  ></div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                    {selectedColors.length > 0 ? "Perfect!" : "Great job!"}
+                  </h3>
+                  <p className="text-gray-600 capitalize">
+                    The answer is {challenge.result}!
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Space Math Game - Unlocks at 150 points
+   */
+  const MathGameView = () => {
+    const [currentProblem, setCurrentProblem] = useState(0);
+    const [gameScore, setGameScore] = useState(0);
+    const [rocketPosition, setRocketPosition] = useState(0);
+    const [gameComplete, setGameComplete] = useState(false);
+    const [showResult, setShowResult] = useState(false);
+    const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+
+    const mathProblems = [
+      { question: "2 + 1 = ?", answer: 3, options: [2, 3, 4, 5] },
+      { question: "4 - 2 = ?", answer: 2, options: [1, 2, 3, 4] },
+      { question: "3 + 2 = ?", answer: 5, options: [4, 5, 6, 7] },
+      { question: "6 - 3 = ?", answer: 3, options: [2, 3, 4, 5] },
+      { question: "1 + 4 = ?", answer: 5, options: [4, 5, 6, 7] },
+      { question: "5 - 1 = ?", answer: 4, options: [3, 4, 5, 6] },
+    ];
+
+    const handleMathAnswer = (answer: number) => {
+      setSelectedAnswer(answer);
+      const isCorrect = answer === mathProblems[currentProblem].answer;
+      setShowResult(true);
+
+      if (isCorrect) {
+        setGameScore((prev) => prev + 25);
+        setRocketPosition((prev) => prev + 1);
+      }
+
+      setTimeout(() => {
+        if (currentProblem < mathProblems.length - 1) {
+          setCurrentProblem((prev) => prev + 1);
+          setShowResult(false);
+          setSelectedAnswer(null);
+        } else {
+          setGameComplete(true);
+          setProgress((prev) => ({
+            ...prev,
+            totalPoints: prev.totalPoints + 100,
+          }));
+        }
+      }, 2000);
+    };
+
+    const problem = mathProblems[currentProblem];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-black p-4">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={() => setCurrentView("game")}
+              className="bg-white p-3 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all"
+            >
+              <Home className="text-purple-600 text-xl" />
+            </button>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-white">🚀 Space Math</h1>
+              <p className="text-blue-200">
+                Mission {currentProblem + 1} • Score: {gameScore} points
+              </p>
+            </div>
+            <div className="w-12"></div>
+          </div>
+
+          {gameComplete ? (
+            <div className="bg-white rounded-3xl shadow-xl p-8 text-center">
+              <div className="text-6xl mb-4">🌟</div>
+              <h2 className="text-3xl font-bold text-blue-600 mb-4">
+                Mission Accomplished!
+              </h2>
+              <p className="text-xl text-gray-700 mb-6">
+                Your rocket reached the stars! You earned 100 bonus points!
+              </p>
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => {
+                    setGameComplete(false);
+                    setCurrentProblem(0);
+                    setGameScore(0);
+                    setRocketPosition(0);
+                    setShowResult(false);
+                    setSelectedAnswer(null);
+                  }}
+                  className="bg-gradient-to-r from-blue-400 to-purple-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-blue-500 hover:to-purple-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  New Mission! 🚀
+                </button>
+                <button
+                  onClick={() => setCurrentView("game")}
+                  className="bg-gradient-to-r from-green-400 to-blue-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-green-500 hover:to-blue-600 transform hover:scale-105 transition-all duration-300"
+                >
+                  More Games! 🎮
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl shadow-xl p-8">
+              {/* Rocket Progress */}
+              <div className="mb-8">
+                <div className="relative h-20 bg-gradient-to-r from-blue-200 to-purple-200 rounded-xl overflow-hidden">
+                  <div
+                    className="absolute top-0 left-0 h-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-1000 rounded-xl"
+                    style={{
+                      width: `${(rocketPosition / mathProblems.length) * 100}%`,
+                    }}
+                  ></div>
+                  <div className="absolute top-1/2 left-4 transform -translate-y-1/2 text-2xl">
+                    🌍
+                  </div>
+                  <div
+                    className="absolute top-1/2 transform -translate-y-1/2 text-3xl transition-all duration-1000"
+                    style={{
+                      left: `${Math.min(
+                        (rocketPosition / mathProblems.length) * 85,
+                        85
+                      )}%`,
+                    }}
+                  >
+                    🚀
+                  </div>
+                  <div className="absolute top-1/2 right-4 transform -translate-y-1/2 text-2xl">
+                    ⭐
+                  </div>
+                </div>
+                <div className="text-center mt-2">
+                  <span className="text-sm text-gray-600">
+                    Help the rocket reach the stars!
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold text-gray-800 mb-4">
+                  {problem.question}
+                </h2>
+                <p className="text-gray-600">
+                  Choose the correct answer to power the rocket!
+                </p>
+              </div>
+
+              {!showResult ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
+                  {problem.options.map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => handleMathAnswer(option)}
+                      className="bg-gradient-to-br from-blue-400 to-purple-500 hover:from-blue-500 hover:to-purple-600 text-white py-3 px-6 rounded-2xl text-lg font-bold transition-all duration-300 shadow-md"
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center">
+                  <h3 className="text-2xl font-bold text-gray-800 mb-2">
+                    {selectedAnswer === problem.answer ? "Correct!" : "Oops!"}
+                  </h3>
+                  <p className="text-gray-600 mb-4">
+                    The correct answer is{" "}
+                    <span className="font-bold">{problem.answer}</span>.
+                  </p>
+                  <button
+                    onClick={nextQuestion}
+                    className="bg-gradient-to-r from-purple-400 to-pink-500 text-white py-3 px-6 rounded-2xl text-lg font-bold hover:from-purple-500 hover:to-pink-600 transform hover:scale-105 transition-all duration-300"
+                  >
+                    {currentProblem < mathProblems.length - 1
+                      ? "Next Mission! 🚀"
+                      : "Finish Game! 🎉"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1938,7 +2486,10 @@ function MainApp({ user }: { user: User }) {
       {currentView === "quiz" && <QuizView />}
       {currentView === "analytics" && <AnalyticsView />}
       {currentView === "teacher" && <TeacherView />}
-      {currentView === "game" && <GameView />}
+      {currentView === "game" && <GameSelectionView />}
+      {currentView === "memory" && <MemoryGameView />}
+      {currentView === "colors" && <ColorGameView />}
+      {currentView === "math" && <MathGameView />}
 
       {/* Developer AI Configuration Status (only in development) */}
       <AIConfigStatus />
