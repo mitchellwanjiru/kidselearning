@@ -29,10 +29,10 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { useAI } from "./hooks/useAI";
-import { AIStatus, AIConfigStatus } from "./components/AIStatus";
 import { AuthWrapper } from "./components/AuthWrapper";
 import { AIQuestion } from "./types/ai";
 import { databaseService } from "./services/databaseService";
+import { AIConfigStatus } from "./components/AIConfigStatus";
 
 // Learning module types for type safety
 type LearningModule =
@@ -716,12 +716,6 @@ function MainApp({ user }: { user: User }) {
               ? "AI-powered personalized learning!"
               : "Fun learning adventures await!"}
           </p>
-          <AIStatus
-            isEnabled={isAIEnabled}
-            loading={questions.loading || encouragement.loading}
-            error={questions.error || encouragement.error}
-            className="mt-2 bg-white/50 mx-auto max-w-md"
-          />
         </div>
 
         {/* Progress Dashboard */}
@@ -912,7 +906,7 @@ function MainApp({ user }: { user: User }) {
               </p>
 
               {/* AI Status in Module View */}
-              <AIStatus
+              <AIConfigStatus
                 isEnabled={isAIEnabled}
                 loading={questions.loading}
                 error={questions.error}
@@ -1190,16 +1184,6 @@ function MainApp({ user }: { user: User }) {
                   ? "AI analyzed your progress and has special insights!"
                   : "Here's your personalized learning summary!"}
               </p>
-
-              {/* Analytics Status Indicator */}
-              <div className="mt-2">
-                <AIStatus
-                  isEnabled={isAIEnabled}
-                  loading={analytics.loading}
-                  error={analytics.error}
-                  className="bg-white/50 max-w-md"
-                />
-              </div>
             </div>
           </div>
 
@@ -1630,7 +1614,7 @@ function MainApp({ user }: { user: User }) {
 
           {/* AI Status for Teachers */}
           <div className="mt-8">
-            <AIStatus
+            <AIConfigStatus
               isEnabled={isAIEnabled}
               loading={
                 questions.loading || encouragement.loading || analytics.loading
@@ -1817,13 +1801,13 @@ function MainApp({ user }: { user: User }) {
   const selectChild = async (child: any) => {
     setCurrentChild(child);
     setShowChildSelection(false);
-    
+
     // Load child's progress from database
     try {
       const childProgress = await loadChildProgress(child);
       setProgress(childProgress);
     } catch (error) {
-      console.error('Failed to load child progress:', error);
+      console.error("Failed to load child progress:", error);
       // Set default progress if loading fails
       setProgress({
         totalPoints: 0,
@@ -1850,10 +1834,11 @@ function MainApp({ user }: { user: User }) {
    */
   const loadChildProgress = async (child: any): Promise<UserProgress> => {
     try {
-      const { data: progressData, error } = await databaseService.getChildProgress(child.id);
-      
+      const { data: progressData, error } =
+        await databaseService.getChildProgress(child.id);
+
       if (error) {
-        console.error('Error loading child progress:', error);
+        console.error("Error loading child progress:", error);
         // Return default progress if error
         return {
           totalPoints: 0,
@@ -1915,7 +1900,7 @@ function MainApp({ user }: { user: User }) {
         };
       }
     } catch (error) {
-      console.error('Failed to load child progress:', error);
+      console.error("Failed to load child progress:", error);
       // Return default progress on error
       return {
         totalPoints: 0,
