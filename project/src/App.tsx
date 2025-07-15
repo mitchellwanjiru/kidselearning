@@ -713,7 +713,7 @@ function MainApp({ user }: { user: User }) {
           </div>
           <p className="text-xl text-purple-600 font-medium">
             {isAIEnabled
-              ? "AI-powered personalized learning!"
+              ? "Personalized learning!"
               : "Fun learning adventures await!"}
           </p>
         </div>
