@@ -119,10 +119,10 @@ function MainApp({ user }: { user: User }) {
   const [showAnswer, setShowAnswer] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
-  const [incorrectQuestions, setIncorrectQuestions] = useState<AIQuestion[]>(
+  const [, setIncorrectQuestions] = useState<AIQuestion[]>(
     []
   );
-  const [showPractice, setShowPractice] = useState(false);
+  const [, setShowPractice] = useState(false);
   const [isPracticeMode, setIsPracticeMode] = useState(false);
 
   // User progress state
