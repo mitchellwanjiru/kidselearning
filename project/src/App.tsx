@@ -845,6 +845,7 @@ function MainApp({ user }: { user: User }) {
             <Heart className="text-red-500 text-2xl animate-pulse" />
             <span className="text-lg font-bold text-purple-800">
               Keep learning and growing!
+              Earn more points to unlock games!
             </span>
             <Heart className="text-red-500 text-2xl animate-pulse" />
           </div>
