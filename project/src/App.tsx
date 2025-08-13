@@ -1613,11 +1613,13 @@ function MainApp({ user }: { user: User }) {
                       onChange={(e) => setNewChildAge(Number(e.target.value))}
                       className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value={3}>3 years old</option>
-                      <option value={4}>4 years old</option>
                       <option value={5}>5 years old</option>
                       <option value={6}>6 years old</option>
                       <option value={7}>7 years old</option>
+                      <option value={8}>8 years old</option>
+                      <option value={9}>9 years old</option>
+                      <option value={10}>10 years old</option>
+                      <option value={11}>11 years old</option>
                     </select>
                   </div>
                   <div className="flex gap-2">
