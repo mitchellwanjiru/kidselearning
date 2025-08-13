@@ -174,7 +174,7 @@ function MainApp({ user }: { user: User }) {
     // Generate AI-powered questions for this module
     if (isAIEnabled && currentChild) {
       await questions.generateQuestions({
-        module: moduleData[module].title,
+        module: `${moduleData[module].title} - IMPORTANT: Create text-only questions without any picture references`,
         difficulty: getDifficultyForAge(currentChild.age), // Age-appropriate difficulty
         childAge: currentChild.age, // Use actual child's age
         previousTopics: progress.recentTopics,
@@ -186,11 +186,10 @@ function MainApp({ user }: { user: User }) {
   /**
    * Determines appropriate difficulty level based on child's age
    */
-  const getDifficultyForAge = (age: number): string => {
-    if (age <= 5) return "very_easy";
+  const getDifficultyForAge = (age: number): "easy" | "medium" | "hard" => {
     if (age <= 7) return "easy";
     if (age <= 9) return "medium";
-    return "medium_hard";
+    return "hard";
   };
 
   /**
