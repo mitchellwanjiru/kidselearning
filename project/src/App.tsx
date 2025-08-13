@@ -172,11 +172,11 @@ function MainApp({ user }: { user: User }) {
     setCurrentView("module");
 
     // Generate AI-powered questions for this module
-    if (isAIEnabled) {
+    if (isAIEnabled && currentChild) {
       await questions.generateQuestions({
         module: moduleData[module].title,
-        difficulty: "easy", // Start with easy, AI will adapt
-        childAge: 5, // Kindergarten age
+        difficulty: getDifficultyForAge(currentChild.age), // Age-appropriate difficulty
+        childAge: currentChild.age, // Use actual child's age
         previousTopics: progress.recentTopics,
         childInterests: [], // Could be expanded based on user preferences
       });
@@ -184,16 +184,44 @@ function MainApp({ user }: { user: User }) {
   };
 
   /**
+   * Determines appropriate difficulty level based on child's age
+   */
+  const getDifficultyForAge = (age: number): string => {
+    if (age <= 5) return "very_easy";
+    if (age <= 7) return "easy";
+    if (age <= 9) return "medium";
+    return "medium_hard";
+  };
+
+  /**
+   * Gets age-appropriate question count based on child's age and attention span
+   */
+  const getQuestionCountForAge = (age: number): number => {
+    if (age <= 5) return 3; // Shorter sessions for younger kids
+    if (age <= 7) return 4;
+    if (age <= 9) return 5;
+    return 6; // Longer sessions for older kids
+  };
+
+  /**
    * Starts the quiz with AI-generated or fallback questions
    * Sets up the quiz state and begins the learning session
    */
   const startQuiz = async () => {
+    let questionsToUse = [];
+
     if (questions.questions.length > 0) {
-      setCurrentQuestions(questions.questions);
+      // Limit questions based on child's age for appropriate attention span
+      const maxQuestions = getQuestionCountForAge(currentChild.age);
+      questionsToUse = questions.questions.slice(0, maxQuestions);
     } else {
       // Use fallback questions if AI generation failed
-      setCurrentQuestions(getFallbackQuestions());
+      const fallbackQuestions = getFallbackQuestions();
+      const maxQuestions = getQuestionCountForAge(currentChild.age);
+      questionsToUse = fallbackQuestions.slice(0, maxQuestions);
     }
+
+    setCurrentQuestions(questionsToUse);
 
     // Create a new learning session in the database
     try {
@@ -871,6 +899,8 @@ function MainApp({ user }: { user: User }) {
   const ModuleView = () => {
     if (!selectedModule) return null;
     const module = moduleData[selectedModule];
+    const expectedQuestions =
+      questions.questions.length || getQuestionCountForAge(currentChild.age);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-pink-100 p-4">
@@ -889,8 +919,8 @@ function MainApp({ user }: { user: User }) {
               </h1>
               <p className="text-purple-600">
                 {isAIEnabled
-                  ? "AI is preparing perfect questions for you!"
-                  : "Ready to learn something awesome?"}
+                  ? `AI is preparing ${expectedQuestions} perfect questions for ${currentChild.name} (age ${currentChild.age})!`
+                  : `Ready to learn something awesome, ${currentChild.name}?`}
               </p>
             </div>
           </div>
@@ -913,11 +943,21 @@ function MainApp({ user }: { user: User }) {
               </h2>
               <p className="text-lg text-gray-600">
                 {questions.loading
-                  ? "AI is creating personalized questions just for you..."
-                  : `I have ${
-                      questions.questions.length || 3
-                    } fun questions ready. Are you excited to show me how smart you are?`}
+                  ? `AI is creating ${expectedQuestions} personalized questions just right for a ${currentChild.age}-year-old...`
+                  : `I have ${expectedQuestions} fun questions ready for you, ${currentChild.name}. Are you excited to show me how smart you are?`}
               </p>
+
+              {/* Age-appropriate messaging */}
+              <div className="mt-4 bg-blue-50 rounded-lg p-3">
+                <p className="text-sm text-blue-700">
+                  🎯 Questions tailored for age {currentChild.age} •
+                  {currentChild.age <= 5 && " Extra fun and simple!"}
+                  {currentChild.age >= 6 &&
+                    currentChild.age <= 8 &&
+                    " Perfect for your reading level!"}
+                  {currentChild.age >= 9 && " More challenging and engaging!"}
+                </p>
+              </div>
 
               {/* AI Status in Module View */}
               <AIConfigStatus
@@ -947,8 +987,8 @@ function MainApp({ user }: { user: User }) {
             </div>
             <p className="text-yellow-800 font-medium">
               {isAIEnabled
-                ? "Hi there! I'm your AI learning buddy. I'm creating special questions that are perfect for you based on what you like to learn. Let's have amazing fun together!"
-                : "Hi there! I'm your learning buddy. I'll help you learn by asking questions and celebrating when you do great! Let's have fun together!"}
+                ? `Hi ${currentChild.name}! I'm your AI learning buddy. I'm creating special questions that are perfect for a ${currentChild.age}-year-old like you. Let's have amazing fun together!`
+                : `Hi ${currentChild.name}! I'm your learning buddy. I'll help you learn with questions that are just right for you! Let's have fun together!`}
             </p>
           </div>
         </div>
